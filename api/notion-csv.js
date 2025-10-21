@@ -63,23 +63,40 @@ function getTitleFromProps(props) {
   return "";
 }
 
-async function expandRelationsIfNeeded(row, page, dbProps) {
-  if (!CFG.EXPAND_RELATIONS) return row;
-  if (dbProps["Kurzus"]?.type === "relation") {
-    const rel = page.properties["Kurzus"]?.relation || [];
-    const titles = [];
-    for (const r of rel) {
-      try {
-        const p = await notion.pages.retrieve({ page_id: r.id });
-        const title = getTitleFromProps(p.properties);
-        titles.push(title || r.id);
-      } catch {
-        titles.push(r.id);
-      }
-    }
-    row["Kurzus"] = titles.join(", ");
+// ── ÚJ: hosszegységesítés
+function parseDurationToSeconds(raw) {
+  if (raw === null || raw === undefined) return 0;
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, Math.floor(raw));
+  let s = String(raw).trim();
+  if (!s) return 0;
+  // csak számok és kettőspont marad
+  s = s.replace(/[^\d:]/g, "");
+  if (!s) return 0;
+  const parts = s.split(":").map(v => (v === "" ? 0 : parseInt(v, 10)));
+  // ha csak szám: másodperc
+  if (parts.length === 1) return Number.isFinite(parts[0]) ? Math.max(0, parts[0]) : 0;
+  // mm:ss
+  if (parts.length === 2) {
+    const [m, sec] = parts;
+    return (Number.isFinite(m) ? m : 0) * 60 + (Number.isFinite(sec) ? sec : 0);
   }
-  return row;
+  // hh:mm:ss (vagy hosszabb: az utolsó 3 elemet használjuk)
+  const [h, m, sec] = parts.slice(-3);
+  const H = Number.isFinite(h) ? h : 0;
+  const M = Number.isFinite(m) ? m : 0;
+  const S = Number.isFinite(sec) ? sec : 0;
+  return H * 3600 + M * 60 + S;
+}
+
+function secondsToHHMMSS(totalSec) {
+  const s = Math.max(0, Math.floor(totalSec || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const hh = String(h).padStart(2, "0");
+  const mm = String(m).padStart(2, "0");
+  const ss = String(sec).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
 }
 
 function buildStatusFilter(db, statusPropName, statusValue) {
@@ -103,7 +120,6 @@ function buildSorts(db) {
   return sorts;
 }
 
-// Classic Node.js Serverless Function handler — kompatibilis @vercel/node-dzsal
 export default async function handler(req, res) {
   try {
     if (CFG.REQUIRE_KEY) {
@@ -139,23 +155,58 @@ export default async function handler(req, res) {
 
       for (const page of resp.results) {
         const props = page.properties;
+
+        // --- mezők olvasása
+        const rawLen = read.text(props["Lecke hossza"]);
+        const seconds = parseDurationToSeconds(rawLen);
+        const hhmmss = secondsToHHMMSS(seconds);
+
         const row = {
           "Kurzus": read.text(props["Kurzus"]),
           "Sorszám": read.number(props["Sorszám"]),
           "Szakasz": read.text(props["Szakasz"]),
           "Lecke címe": read.text(props["Lecke címe"]) || getTitleFromProps(props),
           "Videó státusz": read.text(props[CFG.STATUS_PROP_NAME]),
-          "Lecke hossza": read.text(props["Lecke hossza"])
+          // Egységes kimenetek:
+          "Lecke hossza": hhmmss,                 // kompatibilis, mindig HH:MM:SS
+          "Lecke hossza (mp)": String(seconds),   // másodpercben
+          "Lecke hossza (HH:MM:SS)": hhmmss       // külön oszlopban is
         };
-        const expanded = await expandRelationsIfNeeded(row, page, db.properties);
-        rows.push(expanded);
+
+        // opcionális relation feloldás (Kurzus)
+        if (CFG.EXPAND_RELATIONS && db.properties?.["Kurzus"]?.type === "relation") {
+          const rel = page.properties["Kurzus"]?.relation || [];
+          const titles = [];
+          for (const r of rel) {
+            try {
+              const p = await notion.pages.retrieve({ page_id: r.id });
+              const title = getTitleFromProps(p.properties);
+              titles.push(title || r.id);
+            } catch {
+              titles.push(r.id);
+            }
+          }
+          row["Kurzus"] = titles.join(", ");
+        }
+
+        rows.push(row);
       }
 
       has_more = resp.has_more;
       cursor = resp.next_cursor || undefined;
     }
 
-    const headers = ["Kurzus", "Sorszám", "Szakasz", "Lecke címe", "Videó státusz", "Lecke hossza"];
+    const headers = [
+      "Kurzus",
+      "Sorszám",
+      "Szakasz",
+      "Lecke címe",
+      "Videó státusz",
+      "Lecke hossza",
+      "Lecke hossza (mp)",
+      "Lecke hossza (HH:MM:SS)"
+    ];
+
     const csv = toCSV(rows, headers, { addBOM: true });
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
