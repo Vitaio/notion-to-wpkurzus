@@ -1,3 +1,4 @@
+
 import { Client } from "@notionhq/client";
 
 const notion = new Client({ auth: process.env.NOTION_TOKEN });
@@ -63,24 +64,20 @@ function getTitleFromProps(props) {
   return "";
 }
 
-// ── ÚJ: hosszegységesítés
+// Normalize: "(04:06)" | "14:31" | "01:12:24" | "37:00" | "" -> HH:MM:SS
 function parseDurationToSeconds(raw) {
   if (raw === null || raw === undefined) return 0;
   if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, Math.floor(raw));
   let s = String(raw).trim();
   if (!s) return 0;
-  // csak számok és kettőspont marad
-  s = s.replace(/[^\d:]/g, "");
+  s = s.replace(/[^\d:]/g, ""); // strip parens and anything else
   if (!s) return 0;
   const parts = s.split(":").map(v => (v === "" ? 0 : parseInt(v, 10)));
-  // ha csak szám: másodperc
   if (parts.length === 1) return Number.isFinite(parts[0]) ? Math.max(0, parts[0]) : 0;
-  // mm:ss
   if (parts.length === 2) {
     const [m, sec] = parts;
     return (Number.isFinite(m) ? m : 0) * 60 + (Number.isFinite(sec) ? sec : 0);
   }
-  // hh:mm:ss (vagy hosszabb: az utolsó 3 elemet használjuk)
   const [h, m, sec] = parts.slice(-3);
   const H = Number.isFinite(h) ? h : 0;
   const M = Number.isFinite(m) ? m : 0;
@@ -155,10 +152,7 @@ export default async function handler(req, res) {
 
       for (const page of resp.results) {
         const props = page.properties;
-
-        // --- mezők olvasása
-        const rawLen = read.text(props["Lecke hossza"]);
-        const seconds = parseDurationToSeconds(rawLen);
+        const seconds = parseDurationToSeconds(read.text(props["Lecke hossza"]));
         const hhmmss = secondsToHHMMSS(seconds);
 
         const row = {
@@ -167,13 +161,9 @@ export default async function handler(req, res) {
           "Szakasz": read.text(props["Szakasz"]),
           "Lecke címe": read.text(props["Lecke címe"]) || getTitleFromProps(props),
           "Videó státusz": read.text(props[CFG.STATUS_PROP_NAME]),
-          // Egységes kimenetek:
-          "Lecke hossza": hhmmss,                 // kompatibilis, mindig HH:MM:SS
-          "Lecke hossza (mp)": String(seconds),   // másodpercben
-          "Lecke hossza (HH:MM:SS)": hhmmss       // külön oszlopban is
+          "Lecke hossza": hhmmss
         };
 
-        // opcionális relation feloldás (Kurzus)
         if (CFG.EXPAND_RELATIONS && db.properties?.["Kurzus"]?.type === "relation") {
           const rel = page.properties["Kurzus"]?.relation || [];
           const titles = [];
@@ -202,9 +192,7 @@ export default async function handler(req, res) {
       "Szakasz",
       "Lecke címe",
       "Videó státusz",
-      "Lecke hossza",
-      "Lecke hossza (mp)",
-      "Lecke hossza (HH:MM:SS)"
+      "Lecke hossza"
     ];
 
     const csv = toCSV(rows, headers, { addBOM: true });

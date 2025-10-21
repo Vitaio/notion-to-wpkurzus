@@ -1,3 +1,1 @@
-export default function handler(req, res) {
-  res.status(200).send("ok");
-}
+export default function handler(req,res){res.status(200).send('ok')}
