@@ -9,22 +9,25 @@ const CFG = {
   STATUS_VALUE: process.env.STATUS_VALUE || "✅ Kész",
   REQUIRE_KEY: process.env.CSV_REQUIRE_KEY === "1",
   KEY: process.env.CSV_KEY || "",
-  EXPAND_RELATIONS: process.env.EXPAND_RELATIONS === "1"
+  EXPAND_RELATIONS: process.env.EXPAND_RELATIONS === "1",
+  CSV_ADD_BOM: process.env.CSV_ADD_BOM !== "0", // default: add BOM
+  CSV_EOL: (process.env.CSV_EOL || "CRLF").toUpperCase() // CRLF (default) or LF
 };
 
-function toCSV(rows, headers, { addBOM = true } = {}) {
+function toCSV(rows, headers) {
   const esc = (v) => {
     const s = (v ?? "").toString();
-    const needsQuotes = /[",\n]/.test(s);
+    const needsQuotes = /[",\n\r]/.test(s);
     const escaped = s.replace(/"/g, '""');
     return needsQuotes ? `"${escaped}"` : escaped;
   };
+  const eol = CFG.CSV_EOL === "LF" ? "\n" : "\r\n";
   const lines = [
     headers.map(esc).join(","),
     ...rows.map((r) => headers.map((h) => esc(r[h])).join(","))
   ];
-  const csv = lines.join("\n");
-  return addBOM ? "\uFEFF" + csv : csv;
+  const csv = lines.join(eol);
+  return (CFG.CSV_ADD_BOM ? "\uFEFF" : "") + csv;
 }
 
 const read = {
@@ -64,13 +67,13 @@ function getTitleFromProps(props) {
   return "";
 }
 
-// Normalize: "(04:06)" | "14:31" | "01:12:24" | "37:00" | "" -> HH:MM:SS
+// Normalize "(04:06)" etc → seconds
 function parseDurationToSeconds(raw) {
   if (raw === null || raw === undefined) return 0;
   if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, Math.floor(raw));
   let s = String(raw).trim();
   if (!s) return 0;
-  s = s.replace(/[^\d:]/g, ""); // strip parens and anything else
+  s = s.replace(/[^\d:]/g, "");
   if (!s) return 0;
   const parts = s.split(":").map(v => (v === "" ? 0 : parseInt(v, 10)));
   if (parts.length === 1) return Number.isFinite(parts[0]) ? Math.max(0, parts[0]) : 0;
@@ -186,21 +189,18 @@ export default async function handler(req, res) {
       cursor = resp.next_cursor || undefined;
     }
 
-    const headers = [
-      "Kurzus",
-      "Sorszám",
-      "Szakasz",
-      "Lecke címe",
-      "Videó státusz",
-      "Lecke hossza"
-    ];
+    const headers = ["Kurzus","Sorszám","Szakasz","Lecke címe","Videó státusz","Lecke hossza"];
+    const csv = toCSV(rows, headers);
 
-    const csv = toCSV(rows, headers, { addBOM: true });
-
+    // Send as Buffer with explicit Content-Length; CRLF or LF based on env
+    const body = Buffer.from(csv, "utf8");
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="lessons.csv"');
-    res.setHeader("Cache-Control", "no-store");
-    res.status(200).send(csv);
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Content-Length", String(body.length));
+    res.status(200).send(body);
   } catch (err) {
     res.status(500).send(`Error: ${err.message}`);
   }
