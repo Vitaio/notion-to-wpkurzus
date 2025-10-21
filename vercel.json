@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/notion-csv.js": {
+      "runtime": "nodejs18.x"
+    }
+  }
+}
