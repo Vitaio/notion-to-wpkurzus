@@ -198,6 +198,7 @@ export default async function handler(req, res) {
     const csv = toCSV(rows, headers, { addBOM: true });
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="lessons.csv"');
     res.setHeader("Cache-Control", "no-store");
     res.status(200).send(csv);
   } catch (err) {
