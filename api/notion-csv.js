@@ -103,75 +103,65 @@ function buildSorts(db) {
   return sorts;
 }
 
-async function generateCSV(url) {
-  if (CFG.REQUIRE_KEY) {
-    const key = url.searchParams.get("key");
-    if (!key || key !== CFG.KEY) {
-      return new Response("Unauthorized", { status: 401 });
-    }
-  }
-
-  if (!CFG.DB_ID) return new Response("Error: NOTION_DATABASE_ID nincs beállítva.", { status: 500 });
-  if (!process.env.NOTION_TOKEN) return new Response("Error: NOTION_TOKEN nincs beállítva.", { status: 500 });
-
-  const db = await notion.databases.retrieve({ database_id: CFG.DB_ID });
-
-  const filter = buildStatusFilter(db, CFG.STATUS_PROP_NAME, CFG.STATUS_VALUE);
-  if (!filter) {
-    return new Response(`Error: A(z) "${CFG.STATUS_PROP_NAME}" property nem status/select/checkbox a DB-ben.`, { status: 500 });
-  }
-  const sorts = buildSorts(db);
-
-  let cursor = undefined;
-  let has_more = true;
-  const rows = [];
-
-  while (has_more) {
-    const resp = await notion.databases.query({
-      database_id: CFG.DB_ID,
-      filter,
-      sorts,
-      page_size: 100,
-      start_cursor: cursor
-    });
-
-    for (const page of resp.results) {
-      const props = page.properties;
-      const row = {
-        "Kurzus": read.text(props["Kurzus"]),
-        "Sorszám": read.number(props["Sorszám"]),
-        "Szakasz": read.text(props["Szakasz"]),
-        "Lecke címe": read.text(props["Lecke címe"]) || getTitleFromProps(props),
-        "Videó státusz": read.text(props[CFG.STATUS_PROP_NAME]),
-        "Lecke hossza": read.text(props["Lecke hossza"])
-      };
-      const expanded = await expandRelationsIfNeeded(row, page, db.properties);
-      rows.push(expanded);
+// Classic Node.js Serverless Function handler — kompatibilis @vercel/node-dzsal
+export default async function handler(req, res) {
+  try {
+    if (CFG.REQUIRE_KEY) {
+      if (!req.query?.key || req.query.key !== CFG.KEY) {
+        res.status(401).send("Unauthorized");
+        return;
+      }
     }
 
-    has_more = resp.has_more;
-    cursor = resp.next_cursor || undefined;
-  }
+    if (!CFG.DB_ID) throw new Error("NOTION_DATABASE_ID nincs beállítva.");
+    if (!process.env.NOTION_TOKEN) throw new Error("NOTION_TOKEN nincs beállítva.");
 
-  const headers = ["Kurzus", "Sorszám", "Szakasz", "Lecke címe", "Videó státusz", "Lecke hossza"];
-  const csv = toCSV(rows, headers, { addBOM: true });
-  return new Response(csv, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Cache-Control": "no-store"
+    const db = await notion.databases.retrieve({ database_id: CFG.DB_ID });
+
+    const filter = buildStatusFilter(db, CFG.STATUS_PROP_NAME, CFG.STATUS_VALUE);
+    if (!filter) {
+      throw new Error(`A(z) "${CFG.STATUS_PROP_NAME}" property nem status/select/checkbox a DB-ben.`);
     }
-  });
+    const sorts = buildSorts(db);
+
+    let cursor = undefined;
+    let has_more = true;
+    const rows = [];
+
+    while (has_more) {
+      const resp = await notion.databases.query({
+        database_id: CFG.DB_ID,
+        filter,
+        sorts,
+        page_size: 100,
+        start_cursor: cursor
+      });
+
+      for (const page of resp.results) {
+        const props = page.properties;
+        const row = {
+          "Kurzus": read.text(props["Kurzus"]),
+          "Sorszám": read.number(props["Sorszám"]),
+          "Szakasz": read.text(props["Szakasz"]),
+          "Lecke címe": read.text(props["Lecke címe"]) || getTitleFromProps(props),
+          "Videó státusz": read.text(props[CFG.STATUS_PROP_NAME]),
+          "Lecke hossza": read.text(props["Lecke hossza"])
+        };
+        const expanded = await expandRelationsIfNeeded(row, page, db.properties);
+        rows.push(expanded);
+      }
+
+      has_more = resp.has_more;
+      cursor = resp.next_cursor || undefined;
+    }
+
+    const headers = ["Kurzus", "Sorszám", "Szakasz", "Lecke címe", "Videó státusz", "Lecke hossza"];
+    const csv = toCSV(rows, headers, { addBOM: true });
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    res.status(200).send(csv);
+  } catch (err) {
+    res.status(500).send(`Error: ${err.message}`);
+  }
 }
-
-// Web Standard handler (Node.js runtime)
-export default {
-  async fetch(request) {
-    try {
-      const url = new URL(request.url);
-      return await generateCSV(url);
-    } catch (err) {
-      return new Response(`Error: ${err.message}`, { status: 500 });
-    }
-  }
-};
