@@ -1,42 +1,34 @@
-# Notion → CSV (Vercel API) a WP All Importhoz
+# Notion → CSV (Vercel API) — fetch() verzió
 
-Ez egy kicsi Vercel-projekt, ami a Notion adatbázisból **csak a „✅ Kész”** státuszú leckéket adja vissza **CSV** formátumban.
+Ez a változat **nem** használ `vercel.json`-t. A Vercel automatikusan felismeri az `/api` mappát, 
+és a Node.js runtime-ot használja. A handler a **Web Standard `fetch`** API-t exportálja, 
+ami stabilabb a modern Vercel környezetekben.
 
-## Gyors indítás
+## Telepítés
 
-1. **Notion**
-   - Property-k: `Kurzus` | `Sorszám` | `Szakasz` | `Lecke címe` | `Videó státusz` | `Lecke hossza`
-   - `Videó státusz` értékei közt legyen **✅ Kész**.
-   - Hozz létre Notion integrációt, másold ki a `NOTION_TOKEN`-t és **Share**-öld a DB-t az integrációnak.
-   - Szerezd meg a `NOTION_DATABASE_ID`-t (a DB URL-jéből).
+1. Töltsd fel a repo-t GitHubra.
+2. Vercel → New Project → importáld a repo-t.
+3. Állítsd be az env változókat (Project → Settings → Environment Variables):
+   - `NOTION_TOKEN`
+   - `NOTION_DATABASE_ID`
+   - `CSV_REQUIRE_KEY = 1`
+   - `CSV_KEY = <hosszú_random>`
+   - *(opcionális)* `STATUS_PROP_NAME = Videó státusz`
+   - *(opcionális)* `STATUS_VALUE = ✅ Kész`
+   - *(opcionális)* `EXPAND_RELATIONS = 1`
+4. (Ajánlott) `package.json` már tartalmazza: `"engines": {"node": "20.x"}`.
+5. Deploy.
 
-2. **Deploy Vercelre**
-   - Importáld ezt a repo-t a Vercelbe.
-   - Project → **Settings → Environment Variables**:
-     - `NOTION_TOKEN`
-     - `NOTION_DATABASE_ID`
-     - `STATUS_PROP_NAME` = `Videó státusz`
-     - `STATUS_VALUE` = `✅ Kész`
-     - `CSV_REQUIRE_KEY` = `1`
-     - `CSV_KEY` = hosszú random string
-     - *(opcionális)* `EXPAND_RELATIONS` = `1` (ha a `Kurzus` relation és címre akarod feloldani)
+## Használat
 
-3. **Használat**
-   - Endpoint: `https://<app>.vercel.app/api/notion-csv?key=<CSV_KEY>`
-   - A válasz `text/csv` lesz ezekkel az oszlopokkal:
-     - `Kurzus,Sorszám,Szakasz,Lecke címe,Videó státusz,Lecke hossza`
+`https://<app>.vercel.app/api/notion-csv?key=<CSV_KEY>` → `text/csv` kimenet:
 
-4. **WP All Import**
-   - New Import → **Download from URL** → fenti URL (a `?key=` paraméterrel).
-   - Mapping: címezés a fejlécnevek szerint.
-   - Unique key: pl. `Kurzus|Szakasz|Sorszám`.
-   - Scheduling: WP All Import cron URL szerver cronba.
+```
+Kurzus,Sorszám,Szakasz,Lecke címe,Videó státusz,Lecke hossza
+...
+```
 
-## Biztonság
+## Megjegyzés
 
-- A Notion token a szerveren marad (Vercel env var), nem kerül a klienshez.
-- Az endpoint csak `?key=` paraméterrel érhető el (állíts be erős `CSV_KEY`-et; időnként rotáld).
-
-## License
-
-MIT
+- A `✅ Kész` szűrés a Notionban `status/select/checkbox` típusokra működik.
+- `EXPAND_RELATIONS=1` esetén a `Kurzus` relation ID-ket címre próbálja feloldani (lassabb lehet).
