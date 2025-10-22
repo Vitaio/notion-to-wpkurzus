@@ -10,8 +10,8 @@ const CFG = {
   REQUIRE_KEY: process.env.CSV_REQUIRE_KEY === "1",
   KEY: process.env.CSV_KEY || "",
   EXPAND_RELATIONS: process.env.EXPAND_RELATIONS === "1",
-  CSV_ADD_BOM: process.env.CSV_ADD_BOM !== "0", // default: add BOM
-  CSV_EOL: (process.env.CSV_EOL || "CRLF").toUpperCase() // CRLF (default) or LF
+  CSV_ADD_BOM: process.env.CSV_ADD_BOM !== "0",
+  CSV_EOL: (process.env.CSV_EOL || "CRLF").toUpperCase()
 };
 
 function toCSV(rows, headers) {
@@ -67,7 +67,6 @@ function getTitleFromProps(props) {
   return "";
 }
 
-// Normalize "(04:06)" etc → seconds
 function parseDurationToSeconds(raw) {
   if (raw === null || raw === undefined) return 0;
   if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, Math.floor(raw));
@@ -116,12 +115,24 @@ function buildSorts(db) {
   if (db.properties?.["Szakasz"]?.type === "select") {
     sorts.push({ property: "Szakasz", direction: "ascending" });
   }
-  sorts.push({ timestamp: "created_time", direction: "ascending" });
+  sorts.push({ timestamp: "created_time", "direction": "ascending" });
   return sorts;
 }
 
 export default async function handler(req, res) {
   try {
+    // HEAD handling (WP All Import sometimes issues HEAD first)
+    if (req.method === "HEAD") {
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="lessons.csv"');
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+      res.setHeader("Accept-Ranges", "none");
+      res.status(200).end();
+      return;
+    }
+
     if (CFG.REQUIRE_KEY) {
       if (!req.query?.key || req.query.key !== CFG.KEY) {
         res.status(401).send("Unauthorized");
@@ -174,7 +185,7 @@ export default async function handler(req, res) {
             try {
               const p = await notion.pages.retrieve({ page_id: r.id });
               const title = getTitleFromProps(p.properties);
-              titles.push(title || r.id);
+              titles.append(title || r.id);
             } catch {
               titles.push(r.id);
             }
@@ -192,13 +203,13 @@ export default async function handler(req, res) {
     const headers = ["Kurzus","Sorszám","Szakasz","Lecke címe","Videó státusz","Lecke hossza"];
     const csv = toCSV(rows, headers);
 
-    // Send as Buffer with explicit Content-Length; CRLF or LF based on env
     const body = Buffer.from(csv, "utf8");
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="lessons.csv"');
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
+    res.setHeader("Accept-Ranges", "none");
     res.setHeader("Content-Length", String(body.length));
     res.status(200).send(body);
   } catch (err) {
