@@ -19,3 +19,8 @@
 ## Teszt
 - `https://<app>.vercel.app/api/ok` → `ok`
 - `https://<app>.vercel.app/api/notion-csv?key=<CSV_KEY>` → CSV
+
+## WP All Import kompatibilitás
+- A `HEAD` válasz most kifejezetten tartalmaz `Content-Length: 0` és `Connection: close` fejléceket.
+- A `GET` válaszban biztosítjuk a `Content-Length`-et, valamint `Content-Transfer-Encoding: binary` és `Connection: close` fejléceket.
+- Ha a `Download from URL` nem szereti a `Content-Disposition` fejlécet, próbáld ki az alternatív útvonalat: `/api/notion-csv-plain.csv` (azonos tartalom, minimális fejlécekkel).

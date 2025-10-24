@@ -128,10 +128,12 @@ export default async function handler(req, res) {
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
-      res.setHeader("Accept-Ranges", "none");
-      res.status(200).end();
+res.status(200).end();
       return;
-    }
+    
+      res.setHeader("Content-Length", "0");
+      res.setHeader("Connection", "close");
+}
 
     if (CFG.REQUIRE_KEY) {
       if (!req.query?.key || req.query.key !== CFG.KEY) {
@@ -185,7 +187,7 @@ export default async function handler(req, res) {
             try {
               const p = await notion.pages.retrieve({ page_id: r.id });
               const title = getTitleFromProps(p.properties);
-              titles.append(title || r.id);
+              titles.push(title || r.id);
             } catch {
               titles.push(r.id);
             }
@@ -209,8 +211,9 @@ export default async function handler(req, res) {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
-    res.setHeader("Accept-Ranges", "none");
-    res.setHeader("Content-Length", String(body.length));
+res.setHeader("Content-Length", String(body.length));
+    res.setHeader("Content-Transfer-Encoding", "binary");
+    res.setHeader("Connection", "close");
     res.status(200).send(body);
   } catch (err) {
     res.status(500).send(`Error: ${err.message}`);
