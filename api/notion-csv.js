@@ -1,79 +1,6 @@
 
 import { Client } from "@notionhq/client";
 
-
-
-function setCsvHeaders(res) {
-
-async function notionCall(fn, args = [], { retries = 3, baseDelayMs = 300 } = {}) {
-
-function normalizeDuration(raw) {
-  if (raw == null) return '';
-  let s = String(raw).trim();
-
-  // If contains h/m/s tokens, parse them
-  const tokenRe = /(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?/i;
-  const tokenMatch = s.match(tokenRe);
-  if (tokenMatch && (tokenMatch[1] || tokenMatch[2] || tokenMatch[3])) {
-    const h = parseInt(tokenMatch[1] || '0', 10);
-    const m = parseInt(tokenMatch[2] || '0', 10);
-    const sec = parseInt(tokenMatch[3] || '0', 10);
-    const total = h * 3600 + m * 60 + sec;
-    return toHMS(total);
-  }
-
-  // Allow HH:MM:SS or MM:SS
-  if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) {
-    const parts = s.split(':').map(x => parseInt(x, 10));
-    let total = 0;
-    if (parts.length === 2) {
-      total = parts[0] * 60 + parts[1];
-    } else if (parts.length === 3) {
-      total = parts[0] * 3600 + parts[1] * 60 + parts[2];
-    }
-    return toHMS(total);
-  }
-
-  // Fallback: extract digits only (was previous behavior); treat as seconds
-  const digits = (s.match(/\d+/g) || []).join('');
-  if (digits) {
-    const total = parseInt(digits, 10);
-    return toHMS(total);
-  }
-  return '';
-}
-
-function toHMS(totalSeconds) {
-  totalSeconds = Math.max(0, parseInt(totalSeconds || 0, 10));
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const sec = totalSeconds % 60;
-  const HH = String(h).padStart(2, '0');
-  const MM = String(m).padStart(2, '0');
-  const SS = String(sec).padStart(2, '0');
-  return `${HH}:${MM}:${SS}`;
-}
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await fn(...args);
-    } catch (err) {
-      const status = err?.status || err?.statusCode || err?.code;
-      if (attempt < retries && (status === 429 || (status >= 500 && status < 600))) {
-        const delay = baseDelayMs * Math.pow(2, attempt);
-        await new Promise(r => setTimeout(r, delay));
-        continue;
-      }
-      throw err;
-    }
-  }
-}
-  // Only set if missing; allows platform-level headers (e.g., vercel.json) to take precedence.
-  const maybeSet = (name, value) => { try { if (!res.getHeader || !res.getHeader(name)) } };
-  maybeSet('Content-Type', 'text/csv; charset=utf-8');
-  maybeSet('Content-Disposition', 'attachment; filename="lessons.csv"');
-  // We still ensure strong no-cache behavior here.
-  }
-
 const notion = new Client({ auth: process.env.NOTION_TOKEN });
 
 const CFG = {
@@ -193,13 +120,16 @@ function buildSorts(db) {
 }
 
 export default async function handler(req, res) {
-  const relationTitleCache = new Map();
   try {
     // HEAD handling (WP All Import sometimes issues HEAD first)
     if (req.method === "HEAD") {
-      setCsvHeaders(res);
-setCsvHeaders(res);
-res.status(200).end();
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="lessons.csv"');
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+      res.setHeader("Accept-Ranges", "none");
+      res.status(200).end();
       return;
     }
 
@@ -226,13 +156,13 @@ res.status(200).end();
     const rows = [];
 
     while (has_more) {
-      const resp = await notionCall(notion.databases.query.bind(notion), [{
+      const resp = await notion.databases.query({
         database_id: CFG.DB_ID,
         filter,
         sorts,
         page_size: 100,
         start_cursor: cursor
-      }]);
+      });
 
       for (const page of resp.results) {
         const props = page.properties;
@@ -253,9 +183,9 @@ res.status(200).end();
           const titles = [];
           for (const r of rel) {
             try {
-              const p = relationTitleCache.has(r.id) ? relationTitleCache.get(r.id) : await (async () => { const _p = await notionCall(notion.pages.retrieve.bind(notion), [{ page_id: r.id }]); relationTitleCache.set(r.id, _p); return _p; })();
+              const p = await notion.pages.retrieve({ page_id: r.id });
               const title = getTitleFromProps(p.properties);
-              titles.push(title || r.id);
+              titles.append(title || r.id);
             } catch {
               titles.push(r.id);
             }
@@ -274,8 +204,14 @@ res.status(200).end();
     const csv = toCSV(rows, headers);
 
     const body = Buffer.from(csv, "utf8");
-    setCsvHeaders(res);
-res.status(200).send(body);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="lessons.csv"');
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Accept-Ranges", "none");
+    res.setHeader("Content-Length", String(body.length));
+    res.status(200).send(body);
   } catch (err) {
     res.status(500).send(`Error: ${err.message}`);
   }
