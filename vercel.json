@@ -3,10 +3,6 @@
     {
       "source": "/api/notion-csv.csv",
       "destination": "/api/notion-csv"
-    },
-    {
-      "source": "/api/notion-csv-plain.csv",
-      "destination": "/api/notion-csv"
     }
   ],
   "headers": [
@@ -20,19 +16,6 @@
         {
           "key": "Content-Disposition",
           "value": "attachment; filename=lessons.csv"
-        },
-        {
-          "key": "Cache-Control",
-          "value": "no-store"
-        }
-      ]
-    },
-    {
-      "source": "/api/notion-csv-plain.csv",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "text/csv; charset=utf-8"
         },
         {
           "key": "Cache-Control",
